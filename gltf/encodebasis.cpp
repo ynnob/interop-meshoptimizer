@@ -155,7 +155,12 @@ static const char* prepareEncode(basisu::basis_compressor_params& params, const 
 	return NULL;
 }
 
-void encodeImagesBasis(std::string* encoded, const cgltf_data* data, const std::vector<ImageInfo>& images, const char* input_path, const Settings& settings)
+static inline bool isCancelled(const Settings& settings)
+{
+	return settings.is_cancellation_requested && settings.is_cancellation_requested(settings.cancel_context);
+}
+
+bool encodeImagesBasis(std::string* encoded, const cgltf_data* data, const std::vector<ImageInfo>& images, const char* input_path, const Settings& settings)
 {
 	basisu::basisu_encoder_init();
 
@@ -169,20 +174,35 @@ void encodeImagesBasis(std::string* encoded, const cgltf_data* data, const std::
 
 	for (size_t i = 0; i < data->images_count; ++i)
 	{
+		if (isCancelled(settings))
+			return false;
+
 		const cgltf_image& image = data->images[i];
 		ImageInfo info = images[i];
+
+		params[i].m_is_cancellation_requested = settings.is_cancellation_requested;
+		params[i].m_cancel_context = settings.cancel_context;
 
 		if (settings.texture_mode[info.kind] == TextureMode_ETC1S || settings.texture_mode[info.kind] == TextureMode_UASTC)
 			if (const char* error = prepareEncode(params[i], image, input_path, info, settings, temp_prefix + "-" + std::to_string(i), temp_inputs[i], temp_outputs[i]))
 				encoded[i] = error;
 	}
 
+	if (isCancelled(settings))
+		return false;
+
 	uint32_t num_threads = settings.texture_jobs == 0 ? std::thread::hardware_concurrency() : settings.texture_jobs;
 
 	basisu::basis_parallel_compress(num_threads, params, results);
 
+	if (isCancelled(settings))
+		return false;
+
 	for (size_t i = 0; i < data->images_count; ++i)
 	{
+		if (isCancelled(settings))
+			return false;
+
 		if (params[i].m_source_filenames.empty())
 			; // encoding was skipped or preparation resulted in an error
 		else if (results[i].m_error_code == basisu::basis_compressor::cECFailedReadingSourceImages)
@@ -200,5 +220,7 @@ void encodeImagesBasis(std::string* encoded, const cgltf_data* data, const std::
 		if (!temp_outputs[i].empty())
 			removeFile(temp_outputs[i].c_str());
 	}
+
+	return true;
 }
 #endif

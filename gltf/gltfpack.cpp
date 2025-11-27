@@ -338,6 +338,11 @@ static bool isExtensionSupported(const ExtensionInfo* extensions, size_t count, 
 	return false;
 }
 
+static inline bool isCancelled(const Settings& settings)
+{
+	return settings.is_cancellation_requested && settings.is_cancellation_requested(settings.cancel_context);
+}
+
 namespace std
 {
 template <>
@@ -360,7 +365,11 @@ static size_t process(cgltf_data* data, const char* input_path, const char* outp
 	}
 
 	for (size_t i = 0; i < animations.size(); ++i)
+	{
+		if (isCancelled(settings))
+			return size_t(-1);
 		processAnimation(animations[i], settings);
+	}
 
 	std::vector<NodeInfo> nodes(data->nodes_count);
 
@@ -432,6 +441,8 @@ static size_t process(cgltf_data* data, const char* input_path, const char* outp
 
 	for (size_t i = 0; i < meshes.size(); ++i)
 	{
+		if (isCancelled(settings))
+			return size_t(-1);
 		Mesh& mesh = meshes[i];
 		processMesh(mesh, settings);
 
@@ -503,16 +514,20 @@ static size_t process(cgltf_data* data, const char* input_path, const char* outp
 
 #ifdef WITH_BASISU
 	if (data->images_count && settings.texture_ktx2)
-		encodeImagesBasis(encoded_images.data(), data, images, input_path, settings);
+		if (!encodeImagesBasis(encoded_images.data(), data, images, input_path, settings))
+			return size_t(-1);
 #endif
 
 #ifdef WITH_LIBWEBP
 	if (data->images_count && settings.texture_webp)
-		encodeImagesWebP(encoded_images.data(), data, images, input_path, settings);
+		if (!encodeImagesWebP(encoded_images.data(), data, images, input_path, settings))
+			return size_t(-1);
 #endif
 
 	for (size_t i = 0; i < data->images_count; ++i)
 	{
+		if (isCancelled(settings))
+			return size_t(-1);
 		const cgltf_image& image = data->images[i];
 
 		std::string* encoded = !encoded_images[i].empty() ? &encoded_images[i] : NULL;
@@ -583,6 +598,8 @@ static size_t process(cgltf_data* data, const char* input_path, const char* outp
 
 	for (size_t i = 0; i < meshes.size(); ++i)
 	{
+		if (isCancelled(settings))
+			return size_t(-1);
 		const Mesh& mesh = meshes[i];
 
 		comma(json_meshes);
@@ -1113,6 +1130,11 @@ int gltfpack(const char* input, const char* output, const char* report, Settings
 
 	json += '{';
 	size_t bufferspec_pos = process(data, input, output, report, meshes, animations, settings, json, bin, fallback, fallback_size, meshopt_ext);
+	if (bufferspec_pos == size_t(-1))
+	{
+		cgltf_free(data);
+		return 5; // cancelled
+	}
 	json += '}';
 
 	cgltf_free(data);
@@ -1241,6 +1263,9 @@ Settings defaults()
 		settings.texture_scale[kind] = 1.f;
 		settings.texture_quality[kind] = 8;
 	}
+
+	settings.is_cancellation_requested = NULL;
+	settings.cancel_context = NULL;
 
 	return settings;
 }

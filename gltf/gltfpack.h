@@ -177,6 +177,10 @@ struct Settings
 	bool fallback;
 
 	int verbose;
+
+	// Optional cooperative cancellation hook; leave null to disable.
+	bool (*is_cancellation_requested)(void* cancel_context);
+	void* cancel_context;
 };
 
 struct QuantizationPosition
@@ -352,11 +356,11 @@ void adjustDimensions(int& width, int& height, float scale, int limit, bool pow2
 const char* mimeExtension(const char* mime_type);
 
 #ifdef WITH_BASISU
-void encodeImagesBasis(std::string* encoded, const cgltf_data* data, const std::vector<ImageInfo>& images, const char* input_path, const Settings& settings);
+bool encodeImagesBasis(std::string* encoded, const cgltf_data* data, const std::vector<ImageInfo>& images, const char* input_path, const Settings& settings);
 #endif
 
 #ifdef WITH_LIBWEBP
-void encodeImagesWebP(std::string* encoded, const cgltf_data* data, const std::vector<ImageInfo>& images, const char* input_path, const Settings& settings);
+bool encodeImagesWebP(std::string* encoded, const cgltf_data* data, const std::vector<ImageInfo>& images, const char* input_path, const Settings& settings);
 #endif
 
 void markScenes(cgltf_data* data, std::vector<NodeInfo>& nodes);

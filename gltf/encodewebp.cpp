@@ -20,6 +20,11 @@ static int writeWebP(const uint8_t* data, size_t data_size, const WebPPicture* p
 	return 1;
 }
 
+static inline bool isCancelled(const Settings& settings)
+{
+	return settings.is_cancellation_requested && settings.is_cancellation_requested(settings.cancel_context);
+}
+
 // when gltfpack is built with Basis Universal, we have easy access to its jpeg/png decoders
 #ifdef WITH_LIBWEBP_BASIS
 namespace pv_png
@@ -131,7 +136,7 @@ static const char* encodeWebP(const cgltf_image& image, const char* input_path, 
 	return NULL;
 }
 
-void encodeImagesWebP(std::string* encoded, const cgltf_data* data, const std::vector<ImageInfo>& images, const char* input_path, const Settings& settings)
+bool encodeImagesWebP(std::string* encoded, const cgltf_data* data, const std::vector<ImageInfo>& images, const char* input_path, const Settings& settings)
 {
 	std::atomic<size_t> next_image{0};
 
@@ -141,6 +146,9 @@ void encodeImagesWebP(std::string* encoded, const cgltf_data* data, const std::v
 		{
 			size_t i = next_image++;
 			if (i >= data->images_count)
+				break;
+
+			if (isCancelled(settings))
 				break;
 
 			const cgltf_image& image = data->images[i];
@@ -164,6 +172,8 @@ void encodeImagesWebP(std::string* encoded, const cgltf_data* data, const std::v
 
 	for (size_t i = 0; i < thread_count; ++i)
 		threads[i].join();
+
+	return !isCancelled(settings);
 }
 
 #endif
