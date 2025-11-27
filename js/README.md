@@ -4,12 +4,7 @@ This folder contains JavaScript/WebAssembly modules that can be used to access p
 
 ## Structure
 
-Each component comes in two variants:
-
-- `meshopt_component.js` uses a UMD-style module declaration and can be used by a wide variety of JavaScript module loaders, including node.js require(), AMD, Common.JS, and can also be loaded into the web page directly via a `<script>` tag which exposes the module as a global variable
-- `meshopt_component.module.js` uses ES6 module exports and can be imported from another ES6 module
-
-In either case the export name is MeshoptComponent and is an object that has two fields:
+Each component comes in a separate file, `meshopt_component.js`, which uses ES6 module exports and can be imported from another ES6 module. The export name is MeshoptComponent and is an object that has two fields:
 
 - `supported` is a boolean that can be checked to see if the component is supported by the current execution environment; it will generally be `false` when WebAssembly is not supported or enabled. To use these components on browsers without WebAssembly a polyfill library is recommended.
 - `ready` is a Promise that is resolved when WebAssembly compilation and initialization finishes; any functions are unsafe to call before that happens.
@@ -19,6 +14,8 @@ In addition to that, each component exposes a set of specific functions document
 ## Decoder
 
 `MeshoptDecoder` (`meshopt_decoder.js`) implements high performance decompression of attribute and index buffers encoded using meshopt compression. This can be used to decompress glTF buffers encoded with `EXT_meshopt_compression` extension or for custom geometry compression pipelines. The module contains two implementations, scalar and SIMD, with the best performing implementation selected automatically. When SIMD is available, the decoders run at 1-3 GB/s on modern desktop computers.
+
+> Note: for maximum compatibility, MeshoptDecoder is also available as CommonJS module via `meshopt_decoder.cjs`; it can be used by a wide variety of JavaScript module loaders, including node.js require(), AMD, Common.JS, and can also be loaded into the web page directly via a `<script>` tag which exposes the module as a global variable `MeshoptDecoder`.
 
 To decode a buffer, one of the decoding functions should be called:
 
@@ -126,7 +123,7 @@ Note that the source is specified as byte arrays; for example, to quantize a pos
 
 When interleaved vertex data is compressed, `encodeVertexBuffer` can be called with the full size of a single interleaved vertex; however, when compressing deinterleaved data, note that `encodeVertexBuffer` should be called on each component individually if the strides of different streams are different.
 
-By default, `encodeVertexBuffer` uses v0 version of the encoding; this encoding is compatible with `EXT_meshopt_compression` glTF extension but results in lower compression ratios. For better compression, `encodeVertexBufferLevel` can be used to specify encoding version 1; the `level` parameter controls the compression ratio and can be set to 2 (default), 3 for higher compression, or 0/1 for lower. The higher the level, the better the compression ratio, but also the slower the encoding process. When version is set to 0, `level` does not have any effect and the encoding is equivalent to `encodeVertexBuffer`.
+By default, `encodeVertexBuffer` uses v1 version of the encoding; this encoding is *not* compatible with `EXT_meshopt_compression` glTF extension but results in higher compression ratios. To encode data compatible with `EXT_meshopt_compression`, use `encodeVertexBufferLevel` with version=0, or - preferably - `encodeGltfBuffer`, which defaults to v0 (but can also be used to encode v1 content by passing version=1).
 
 ## Simplifier
 
@@ -205,11 +202,23 @@ buildMeshlets(indices: Uint32Array, vertex_positions: Float32Array, vertex_posit
 
 The algorithm uses position data stored in a strided array; `vertex_positions_stride` represents the distance between subsequent positions in `Float32` units.
 
-The maximum number of triangles and number of vertices per meshlet can be controlled via `max_triangles` and `max_vertices` parameters. However, `max_vertices` must not be greater than 255 and `max_triangles` must not be greater than 512.
+The maximum number of triangles and number of vertices per meshlet can be controlled via `max_triangles` and `max_vertices` parameters. However, `max_vertices` must not be greater than 256 and `max_triangles` must not be greater than 512.
 
 Additionally, if cluster cone culling is to be used, `buildMeshlets` allows specifying a `cone_weight` as a value between 0 and 1 to balance culling efficiency with other forms of culling. By default, `cone_weight` is set to 0.
 
-All meshlets are implicitly optimized for better triangle and vertex locality by `buildMeshlets`.
+For finer control over triangle counts, use `buildMeshletsFlex`, which accepts minimum and maximum triangle limits and an optional `split_factor` to nudge large clusters to split sooner.
+
+```ts
+buildMeshletsFlex(indices: Uint32Array, vertex_positions: Float32Array, vertex_positions_stride: number, max_vertices: number, min_triangles: number, max_triangles: number, cone_weight?: number, split_factor?: number) => MeshletBuffers;
+```
+
+To favor spatial splits for ray tracing, `buildMeshletsSpatial` keeps the same controls but replaces cone weighting with `fill_weight` to trade off cluster fullness against SAH cost.
+
+```ts
+buildMeshletsSpatial(indices: Uint32Array, vertex_positions: Float32Array, vertex_positions_stride: number, max_vertices: number, min_triangles: number, max_triangles: number, fill_weight?: number) => MeshletBuffers;
+```
+
+All meshlets produced by these builders are implicitly optimized for better triangle and vertex locality.
 
 The algorithm returns the meshlet data as packed buffers:
 
